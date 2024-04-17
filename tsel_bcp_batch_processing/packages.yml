@@ -1,0 +1,6 @@
+# tsel_bcp_batch_processing/packages.yml
+packages:
+  - package: dbt-labs/dbt_external_tables
+    version: 0.8.7
+  - package: dbt-labs/dbt_utils
+    version: 1.1.1
