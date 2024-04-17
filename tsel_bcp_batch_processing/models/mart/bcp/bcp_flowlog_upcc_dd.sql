@@ -15,6 +15,16 @@
     )
 }}
 
+{% set sql_statement %}
+
+select
+      cast(date_format(to_timestamp(lst_tgt_prtn_hr_val, 'yyyy-MM-dd--HH') + interval 1 hours, 'yyyy-MM-dd--HH') as string) as time_ts_current
+      from (      select max(lst_tgt_prtn_hr_val) lst_tgt_prtn_hr_val from glue_catalog.ctlfw.table_load_partitions where tgt_tbl_name = '{{ this }}')
+
+{% endset %}
+
+{%- set time_ts_current = dbt_utils.get_single_value(sql_statement, default="'2024-01-31--00'") -%}
+
 with bcp_flowlog_upcc as (
 select 
 msisdn,
@@ -38,13 +48,9 @@ event_date,
 event_date_hour
 from 
 {{ ref('bcp_flowlog_upcc_union') }}
+where event_date_hour >= '{{ time_ts_current }}'
 
-{% if is_incremental() %}
 
-  -- this filter will only be applied on an incremental run
-  where event_date_hour > (select max(lst_tgt_prtn_hr_val) from glue_catalog.ctlfw.table_load_partitions where tgt_tbl_name = '{{ this }}' )
-
-{% endif %}
 ),
 bcp_flowlog_upcc_dd as (
 select

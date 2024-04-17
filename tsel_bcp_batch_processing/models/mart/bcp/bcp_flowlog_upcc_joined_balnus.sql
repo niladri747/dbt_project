@@ -15,6 +15,36 @@
     )
 }}
 
+{% set sql_statement1 %}
+
+select
+      cast(date_format(to_timestamp(lst_tgt_prtn_hr_val, 'yyyy-MM-dd--HH') + interval 2 hours, 'yyyy-MM-dd--HH') as string) as time_ts_plus
+      from (      select max(lst_tgt_prtn_hr_val) lst_tgt_prtn_hr_val from glue_catalog.ctlfw.table_load_partitions where tgt_tbl_name = '{{ this }}')
+
+{% endset %}
+
+{% set sql_statement2 %}
+    
+select
+      cast(date_format(to_timestamp(lst_tgt_prtn_hr_val, 'yyyy-MM-dd--HH') + interval 1 hours, 'yyyy-MM-dd--HH') as string) as time_ts_current
+      from (      select max(lst_tgt_prtn_hr_val) lst_tgt_prtn_hr_val from glue_catalog.ctlfw.table_load_partitions where tgt_tbl_name = '{{ this }}')
+
+{% endset %}
+
+{% set sql_statement3 %}
+    
+select
+      lst_tgt_prtn_hr_val
+      from (      select max(lst_tgt_prtn_hr_val) lst_tgt_prtn_hr_val from glue_catalog.ctlfw.table_load_partitions where tgt_tbl_name = '{{ this }}')
+
+{% endset %}
+
+{%- set time_ts_plus = dbt_utils.get_single_value(sql_statement1, default="'2024-01-31--00'") -%}
+
+{%- set time_ts_current = dbt_utils.get_single_value(sql_statement2, default="'2024-01-31--00'") -%}
+
+{%- set time_ts_minus = dbt_utils.get_single_value(sql_statement3, default="'2024-01-31--00'") -%}
+
 with stg_bcp_flowlog_balnus as(
 select
 tokenized_msisdn as msisdn,
@@ -32,13 +62,11 @@ monitoring_key_tag,
 explode(split(monitoring_key_tag,',')) monitoring_key_tag_exploded,
 event_date_hour
 from {{ ref('bcp_flowlog_balnus') }}
+where 
+event_date_hour = '{{ time_ts_current }}'
 
-{% if is_incremental() %}
 
-  -- this filter will only be applied on an incremental run
-  where event_date_hour > (select max(lst_tgt_prtn_hr_val) from glue_catalog.ctlfw.table_load_partitions where tgt_tbl_name = '{{ this }}' )
 
-{% endif %}
 ),
 
 stg_upcc_edr as (
@@ -56,12 +84,7 @@ quota_usage,
 event_date,
 event_date_hour
 from {{ ref('upcc_selected') }}
-{% if is_incremental() %}
-
-  -- this filter will only be applied on an incremental run
-  where event_date_hour > (select max(lst_tgt_prtn_hr_val) from glue_catalog.ctlfw.table_load_partitions where tgt_tbl_name = '{{ this }}' )
-
-{% endif %}
+where event_date_hour between '{{ time_ts_minus }}' and '{{ time_ts_plus }}'
 ),
 
 bcp_flowlog_upcc_joined_balnus as (
