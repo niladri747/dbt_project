@@ -1,0 +1,10 @@
+tsel_bcp_batch_processing:
+  outputs:
+    dev:
+      host: ip-100-64-87-181.ap-southeast-3.compute.internal
+      method: thrift
+      port: 10001
+      schema: ""
+      threads: 3
+      type: spark
+  target: dev
