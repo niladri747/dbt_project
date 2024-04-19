@@ -37,10 +37,10 @@ models:
     +materialized: view
     staging:
       bcp:
-        +schema: processed_temp
+        +schema: dev_processed_temp
     marts:
       +materialized: table
       bcp:
-        +schema: processed_target
+        +schema: dev_processed_target
 
 on-run-end: "{{ log_dbt_results(results) }}"

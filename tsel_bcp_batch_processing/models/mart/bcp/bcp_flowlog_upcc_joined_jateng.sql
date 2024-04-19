@@ -1,17 +1,19 @@
 {{
     config(
         materialized='incremental',
-        file_format='iceberg',
-        location_root='s3://poc-test-bcp-tsel-processed-bucket/data/iceberg/processed_temp',
+        file_format='parquet',
+        location_root='s3://poc-test-bcp-tsel-processed-bucket/data/parquet/dev_processed_temp',
         partition_by=['event_date_hour'],
         incremental_strategy='append',
-        schema= 'glue_catalog.processed_temp',
-        post_hook = "insert into glue_catalog.ctlfw.table_load_partitions
+        schema= 'dev_processed_temp',
+	tags=["hourly"],
+        post_hook = "insert into glue_catalog.ctlfw.table_load_partitions_dummy
         select '{{ this }}' as tgt_tbl_name,
-        max(event_date_hour) as lst_tgt_prtn_hr_val,
-        substring(max(event_date_hour), 1, 10) as lst_tgt_prtn_dt_val,
-        '{{ invocation_id }}' || '{{ model.unique_id }}' as lst_updtd_job_id
-        from {{ this }}",
+        time_ts_current as lst_tgt_prtn_hr_val,
+        substring(time_ts_current, 1, 10) as lst_tgt_prtn_dt_val,
+        '{{ invocation_id }}' || '.' || '{{ model.unique_id }}' as lst_updtd_job_id from (select
+cast(date_format(to_timestamp(lst_tgt_prtn_hr_val, 'yyyy-MM-dd--HH') + interval 1 hours, 'yyyy-MM-dd--HH') as string) as time_ts_current
+      from (      select max(lst_tgt_prtn_hr_val) lst_tgt_prtn_hr_val from glue_catalog.ctlfw.table_load_partitions_dummy where tgt_tbl_name = '{{ this }}'))"
     )
 }}
 
@@ -19,7 +21,7 @@
 
 select
       cast(date_format(to_timestamp(lst_tgt_prtn_hr_val, 'yyyy-MM-dd--HH') + interval 2 hours, 'yyyy-MM-dd--HH') as string) as time_ts_plus
-      from (      select max(lst_tgt_prtn_hr_val) lst_tgt_prtn_hr_val from glue_catalog.ctlfw.table_load_partitions where tgt_tbl_name = '{{ this }}')
+      from (      select max(lst_tgt_prtn_hr_val) lst_tgt_prtn_hr_val from glue_catalog.ctlfw.table_load_partitions_dummy where tgt_tbl_name = '{{ this }}')
 
 {% endset %}
 
@@ -27,7 +29,7 @@ select
     
 select
       cast(date_format(to_timestamp(lst_tgt_prtn_hr_val, 'yyyy-MM-dd--HH') + interval 1 hours, 'yyyy-MM-dd--HH') as string) as time_ts_current
-      from (      select max(lst_tgt_prtn_hr_val) lst_tgt_prtn_hr_val from glue_catalog.ctlfw.table_load_partitions where tgt_tbl_name = '{{ this }}')
+      from (      select max(lst_tgt_prtn_hr_val) lst_tgt_prtn_hr_val from glue_catalog.ctlfw.table_load_partitions_dummy where tgt_tbl_name = '{{ this }}')
 
 {% endset %}
 
@@ -35,7 +37,7 @@ select
     
 select
       lst_tgt_prtn_hr_val
-      from (      select max(lst_tgt_prtn_hr_val) lst_tgt_prtn_hr_val from glue_catalog.ctlfw.table_load_partitions where tgt_tbl_name = '{{ this }}')
+      from (      select max(lst_tgt_prtn_hr_val) lst_tgt_prtn_hr_val from glue_catalog.ctlfw.table_load_partitions_dummy where tgt_tbl_name = '{{ this }}')
 
 {% endset %}
 
@@ -46,6 +48,23 @@ select
 {%- set time_ts_minus = dbt_utils.get_single_value(sql_statement3, default="'2024-01-31--00'") -%}
 
 with stg_bcp_flowlog_jateng as(
+select
+msisdn,
+timestamp,
+timestamp_ts,
+rat,
+application,
+application_category,
+vol_inc,
+vol_out,
+client_ip,
+client_port,
+location,
+monitoring_key_tag,
+monitoring_key_tag_exploded,
+event_date_hour
+from
+(
 select
 tokenized_msisdn as msisdn,
 timestamp,
@@ -62,16 +81,31 @@ monitoring_key_tag,
 explode(split(monitoring_key_tag,',')) monitoring_key_tag_exploded,
 event_date_hour
 from {{ ref('bcp_flowlog_jateng') }}
-where 
+where
 event_date_hour = '{{ time_ts_current }}'
-
-
+)
+group by
+msisdn,
+timestamp,
+timestamp_ts,
+rat,
+application,
+application_category,
+vol_inc,
+vol_out,
+client_ip,
+client_port,
+location,
+monitoring_key_tag,
+monitoring_key_tag_exploded,
+event_date_hour
 
 ),
 
 stg_upcc_edr as (
 select 
 tokenized_msisdn as msisdn,
+provinsi,
 time,
 to_timestamp(time, 'yyyy-MM-dd HH:mm:ss') as time_ts,
 kabupaten,
@@ -85,6 +119,21 @@ event_date,
 event_date_hour
 from {{ ref('upcc_selected') }}
 where event_date_hour between '{{ time_ts_minus }}' and '{{ time_ts_plus }}'
+group by
+tokenized_msisdn,
+provinsi,
+time,
+to_timestamp(time, 'yyyy-MM-dd HH:mm:ss'),
+kabupaten,
+kecamatan,
+quota_name,
+quota_status,
+ifnull(reserved_2,'0'),
+cgi,
+quota_usage,
+event_date,
+event_date_hour
+
 ),
 
 bcp_flowlog_upcc_joined_jateng as (
@@ -100,6 +149,7 @@ bcp_flowlog.client_port,
 bcp_flowlog.location,
 bcp_flowlog.monitoring_key_tag,
 bcp_flowlog.monitoring_key_tag_exploded,
+upcc_edr.provinsi,
 upcc_edr.kabupaten,
 upcc_edr.kecamatan,
 upcc_edr.quota_name,
@@ -128,6 +178,7 @@ client_port,
 location,
 monitoring_key_tag,
 monitoring_key_tag_exploded,
+provinsi,
 kabupaten,
 kecamatan,
 quota_name,
@@ -139,8 +190,6 @@ event_date,
 current_timestamp() as load_ts,
 'etl_user' as load_user,
 '{{ invocation_id }}' as wrkflw_exec_id,
-'{{ invocation_id }}' || '{{ model.unique_id }}' as job_id,
+'{{ invocation_id }}' || '.' || '{{ model.unique_id }}' as job_id,
 event_date_hour
 from bcp_flowlog_upcc_joined_jateng
-
-

@@ -6,11 +6,12 @@
         partition_by=['event_date_hour'],
         incremental_strategy='append',
         schema= 'glue_catalog.processed_temp',
+	tags=["daily"],
 	post_hook = "insert into glue_catalog.ctlfw.table_load_partitions
         select '{{ this }}' as tgt_tbl_name,
         max(event_date_hour) as lst_tgt_prtn_hr_val,
         substring(max(event_date_hour), 1, 10) as lst_tgt_prtn_dt_val,
-        '{{ invocation_id }}' || '{{ model.unique_id }}' as lst_updtd_job_id
+        '{{ invocation_id }}' || '.' || '{{ model.unique_id }}' as lst_updtd_job_id
         from {{ this }}",
     )
 }}
@@ -39,6 +40,7 @@ client_ip,
 client_port,
 location,
 monitoring_key_tag_exploded,
+provinsi,
 kabupaten,
 kecamatan,
 quota_name,
@@ -64,6 +66,7 @@ client_ip,
 client_port,
 location,
 monitoring_key_tag_exploded,
+provinsi,
 kabupaten,
 kecamatan,
 quota_name,
@@ -93,6 +96,7 @@ client_ip,
 client_port,
 location,
 monitoring_key_tag_exploded,
+provinsi,
 kabupaten,
 kecamatan,
 quota_name,
@@ -104,7 +108,7 @@ event_date,
 current_timestamp() as load_ts,
 'etl_user' as load_user,
 '{{ invocation_id }}' as wrkflw_exec_id,
-'{{ invocation_id }}' || '{{ model.unique_id }}' as job_id,
+'{{ invocation_id }}' || '.' || '{{ model.unique_id }}' as job_id,
 event_date_hour
 from 
 bcp_flowlog_upcc_union
